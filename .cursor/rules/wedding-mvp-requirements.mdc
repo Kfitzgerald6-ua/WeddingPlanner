@@ -1,0 +1,45 @@
+---
+alwaysApply: false
+description: Wedding Planner MVP product requirements and phased delivery constraints
+---
+
+# Wedding Planner MVP Requirements
+
+Build a demo-ready MVP in phases, preserving current stack and avoiding unnecessary rewrites.
+
+## Working Style
+- Build incrementally in phases.
+- Before coding each step, state what you will build, files touched, and why.
+- After each step, provide code location and concise test instructions.
+- Stub API-dependent behavior with mock data and TODOs.
+- Keep business logic separate from presentation.
+- Enforce role-based access in UI and logic.
+
+## Roles and Access
+- Planner: manage clients, vendors, workflow, tasks, and internal progress.
+- Manager/Admin: planner capabilities plus full internal clock-in/timelog visibility.
+- Couple: read-only view of own event data except messaging.
+- Couple users cannot see internal timelogs, staff-only notes, or unrelated clients.
+
+## Must-Have MVP Areas
+- Clients Working View with urgency queue and next-action guidance.
+- Prioritization labels: Critical, High, Do soon, Normal, Waiting.
+- Stage requirement gates and blocked-stage explanations.
+- Planner dashboard (clients, upcoming deadlines, vendors, budgets, billable visibility).
+- Client detail view with workflow progression, blockers, vendor/budget/time snapshots.
+- Vendor management with waiting/follow-up statuses and manual add flow.
+- Couple portal (checklist, budget, vendor/venue/progress, messaging).
+- Time tracking with strict role visibility rules.
+- Budget health states (healthy, warning, over budget).
+- Venue as separate entity (not permanently only a vendor category).
+
+## Future-Ready Shells
+- Recommended Vendors section with mock/stub + TODO API hook.
+- AI layout/flooring/venue visualizer placeholder with mock sample cards.
+- Keep data models extensible for future real API + AI integrations.
+
+## Delivery Phases
+- Phase 1: architecture, models, routes, permissions, stage-gate engine structure.
+- Phase 2: core planner/couple UI pages.
+- Phase 3: business rules and workflow validation logic.
+- Phase 4: AI placeholders, follow-up prompts, and demo polish.

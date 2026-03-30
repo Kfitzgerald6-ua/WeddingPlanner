@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import brandImage from "./assets/hero.png";
 
 // ── Mock data (mirrors C# seed data) ────────────────────────────────────────
 
@@ -30,8 +31,6 @@ const mockTimeEntries = [
 ];
 
 const stages = ["Initial Consultation", "Venue Booked", "Vendors Selected", "Contracts Signed", "Planning In Progress", "Final Details", "Wedding Day", "Post Wedding", "Completed"];
-const stageColors = ["#a8b5a0", "#8fa888", "#76986e", "#5d8854", "#44783a", "#2b6820", "#12581a", "#8fa888", "#c8d5c4"];
-
 const categoryIcons = { Venue: "🏛", Catering: "🍽", Photography: "📸", Videography: "🎬", Florist: "💐", Music: "🎵", Cake: "🎂", HairAndMakeup: "💄", Officiant: "📜", Transportation: "🚗", Lighting: "💡", Decor: "✨", Invitations: "✉️", Jewelry: "💍", Other: "📦" };
 
 // ── Styles ───────────────────────────────────────────────────────────────────
@@ -82,6 +81,18 @@ const style = `
   .sidebar-brand {
     padding: 28px 24px 20px;
     border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .brand-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand-logo {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid rgba(232,239,230,0.35);
   }
   .brand-title {
     font-family: 'Cormorant Garamond', serif;
@@ -518,6 +529,35 @@ const style = `
   .empty-state { text-align: center; padding: 48px 24px; color: var(--ink-light); }
   .empty-icon { font-size: 40px; margin-bottom: 12px; }
   .empty-text { font-size: 14px; }
+
+  .login-shell {
+    min-height: 100vh;
+    background: var(--cream);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .login-card {
+    width: 100%;
+    max-width: 460px;
+    background: var(--warm-white);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+    border-radius: 6px;
+    padding: 26px;
+  }
+  .login-title {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 30px;
+    margin-bottom: 4px;
+    color: var(--sage-dark);
+  }
+  .login-subtitle {
+    font-size: 13px;
+    color: var(--ink-light);
+    margin-bottom: 16px;
+  }
 `;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -567,10 +607,14 @@ function StageBadge({ stage }) {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 function Dashboard({ couples, vendors }) {
-  const upcoming = couples.filter(c => {
+  const upcoming90 = couples.filter(c => {
     const days = fmt.daysUntil(c.weddingDate);
     return days >= 0 && days <= 90;
   });
+  const upcomingSorted = [...couples]
+    .map((c) => ({ ...c, daysUntil: fmt.daysUntil(c.weddingDate) }))
+    .filter((c) => c.daysUntil >= 0)
+    .sort((a, b) => a.daysUntil - b.daysUntil);
 
   return (
     <div>
@@ -585,7 +629,7 @@ function Dashboard({ couples, vendors }) {
         <div className="grid-4" style={{ marginBottom: 28 }}>
           {[
             { value: couples.length, label: "Total Clients", note: "Active couples" },
-            { value: upcoming.length, label: "Upcoming (90 days)", note: "Weddings this season" },
+            { value: upcoming90.length, label: "Upcoming (90 days)", note: "Weddings this season" },
             { value: vendors.length, label: "Vendor Directory", note: "Managed vendors" },
             { value: mockEmployees.length, label: "Team Members", note: "Active staff" },
           ].map((s, i) => (
@@ -603,8 +647,8 @@ function Dashboard({ couples, vendors }) {
               <span className="card-title">Upcoming Weddings</span>
             </div>
             <div style={{ padding: "0 0 4px" }}>
-              {couples.sort((a, b) => new Date(a.weddingDate) - new Date(b.weddingDate)).slice(0, 4).map(c => {
-                const days = fmt.daysUntil(c.weddingDate);
+              {upcomingSorted.map(c => {
+                const days = c.daysUntil;
                 return (
                   <div key={c.id} style={{ padding: "14px 24px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
@@ -769,7 +813,7 @@ function CouplesList({ couples, setCouples, onSelectCouple }) {
 
 // ── Couple Detail ─────────────────────────────────────────────────────────────
 
-function CoupleDetail({ couple, vendors, onBack, onUpdateStage }) {
+function CoupleDetail({ couple, onBack, onUpdateStage }) {
   const [activeTab, setActiveTab] = useState("overview");
   const assignedVendors = [
     { id: 1, vendorId: 1, vendorName: "Magnolia Blooms", category: "Florist", contractedPrice: 4500, status: "ContractSigned", depositPaid: true, depositAmount: 1125 },
@@ -958,7 +1002,7 @@ function CoupleDetail({ couple, vendors, onBack, onUpdateStage }) {
 
 // ── Vendor Directory ──────────────────────────────────────────────────────────
 
-function VendorDirectory({ vendors, setVendors }) {
+function VendorDirectory({ vendors }) {
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("All");
   const [showAI, setShowAI] = useState(false);
@@ -1088,8 +1132,22 @@ function TimeTracking({ couples }) {
   const [entries, setEntries] = useState(mockTimeEntries);
   const [showClock, setShowClock] = useState(false);
   const [form, setForm] = useState({ employeeId: "1", coupleId: "1", entryType: "Planning", description: "" });
+  const [timeMessage, setTimeMessage] = useState("");
+
+  const computeWorkedHours = (clockInIso, clockOutIso) => {
+    const diffMs = new Date(clockOutIso).getTime() - new Date(clockInIso).getTime();
+    const rawHours = diffMs / 3600000;
+    return Math.max(0, Math.round(rawHours * 10) / 10);
+  };
 
   const handleClockIn = () => {
+    const employeeId = Number(form.employeeId);
+    const hasOpenEntry = entries.some((entry) => entry.employeeId === employeeId && !entry.clockOut);
+    if (hasOpenEntry) {
+      setTimeMessage("This employee already has an active session. Clock out first.");
+      return;
+    }
+
     const emp = mockEmployees.find(e => e.id === Number(form.employeeId));
     const couple = couples.find(c => c.id === Number(form.coupleId));
     const newEntry = {
@@ -1105,8 +1163,26 @@ function TimeTracking({ couples }) {
       entryTypeLabel: form.entryType,
       isBillable: true,
     };
-    setEntries([newEntry, ...entries]);
+    setEntries((prev) => [newEntry, ...prev]);
+    setTimeMessage(`${emp?.fullName || "Employee"} clocked in successfully.`);
     setShowClock(false);
+  };
+
+  const handleClockOut = (entryId) => {
+    const nowIso = new Date().toISOString();
+    setEntries((prev) =>
+      prev.map((entry) => {
+        if (entry.id !== entryId || entry.clockOut) {
+          return entry;
+        }
+        return {
+          ...entry,
+          clockOut: nowIso,
+          hoursWorked: computeWorkedHours(entry.clockIn, nowIso),
+        };
+      }),
+    );
+    setTimeMessage("Clock out saved.");
   };
 
   const totalHours = entries.reduce((s, e) => s + (e.hoursWorked || 0), 0);
@@ -1135,13 +1211,18 @@ function TimeTracking({ couples }) {
             </div>
           ))}
         </div>
+        {timeMessage && (
+          <div style={{ marginBottom: 14, fontSize: 13, color: "var(--sage-dark)", fontWeight: 500 }}>
+            {timeMessage}
+          </div>
+        )}
 
         <div className="card">
           <div className="card-header"><span className="card-title">Recent Entries</span></div>
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Employee</th><th>Client</th><th>Type</th><th>Description</th><th>Hours</th><th>Billable</th></tr>
+                <tr><th>Employee</th><th>Client</th><th>Type</th><th>Description</th><th>Hours</th><th>Billable</th><th>Action</th></tr>
               </thead>
               <tbody>
                 {entries.map(t => (
@@ -1152,6 +1233,13 @@ function TimeTracking({ couples }) {
                     <td style={{ color: "var(--ink-mid)", maxWidth: 200 }}>{t.description}</td>
                     <td style={{ fontWeight: 500, color: "var(--sage)" }}>{t.hoursWorked ? `${t.hoursWorked}h` : <span style={{ color: "var(--rose)" }}>Active</span>}</td>
                     <td>{t.isBillable ? <span style={{ color: "var(--sage)" }}>✓ Yes</span> : <span style={{ color: "var(--ink-light)" }}>No</span>}</td>
+                    <td>
+                      {!t.clockOut ? (
+                        <button className="btn btn-outline btn-sm" onClick={() => handleClockOut(t.id)}>Clock Out</button>
+                      ) : (
+                        <span style={{ color: "var(--ink-light)", fontSize: 12 }}>Completed</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1309,6 +1397,67 @@ function CouplePortal({ couples }) {
   );
 }
 
+function LoginPage({ onLogin }) {
+  const [accountType, setAccountType] = useState("manager");
+  const [userRole, setUserRole] = useState("planner");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const submitLogin = () => {
+    const loginRole = accountType === "manager" ? "manager" : userRole;
+    const displayName = email.trim() || (loginRole === "couple" ? "Couple User" : "Team User");
+    // TODO: Replace this mock auth with real API auth + token handling.
+    onLogin({ role: loginRole, name: displayName });
+  };
+
+  return (
+    <div className="login-shell">
+      <div className="login-card">
+        <div className="login-title">Bloom & Co. Access</div>
+        <div className="login-subtitle">Manager and user sign-in for the Wedding Planner MVP</div>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <button
+            className={`btn btn-sm ${accountType === "manager" ? "btn-primary" : "btn-outline"}`}
+            onClick={() => setAccountType("manager")}
+          >
+            Manager Login
+          </button>
+          <button
+            className={`btn btn-sm ${accountType === "user" ? "btn-primary" : "btn-outline"}`}
+            onClick={() => setAccountType("user")}
+          >
+            User Login
+          </button>
+        </div>
+
+        <div className="form-group">
+          <label>Email</label>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@bloomco.com" />
+        </div>
+        <div className="form-group">
+          <label>Password</label>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" />
+        </div>
+
+        {accountType === "user" && (
+          <div className="form-group">
+            <label>User Role</label>
+            <select value={userRole} onChange={(e) => setUserRole(e.target.value)}>
+              <option value="planner">Planner</option>
+              <option value="couple">Couple</option>
+            </select>
+          </div>
+        )}
+
+        <button className="btn btn-primary" onClick={submitLogin} style={{ width: "100%", justifyContent: "center" }}>
+          Sign In
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── App Shell ─────────────────────────────────────────────────────────────────
 
 const navItems = [
@@ -1321,10 +1470,11 @@ const navItems = [
 
 export default function App() {
   const [couples, setCouples] = useState(mockCouples);
-  const [vendors, setVendors] = useState(mockVendors);
+  const [vendors] = useState(mockVendors);
   const [activeView, setActiveView] = useState("dashboard");
   const [selectedCouple, setSelectedCouple] = useState(null);
   const [role, setRole] = useState("planner");
+  const [sessionUser, setSessionUser] = useState(null);
 
   const updateStage = (id, newStage) => {
     setCouples(couples.map(c => c.id === id ? { ...c, currentStage: newStage, currentStageLabel: stages[newStage] } : c));
@@ -1333,15 +1483,16 @@ export default function App() {
 
   const plannerNav = navItems.filter(n => n.role === "planner");
   const coupleNav = navItems.filter(n => n.role === "couple");
+  const isOperationsRole = role === "planner" || role === "manager";
 
   const renderContent = () => {
     if (selectedCouple && activeView === "couples") {
-      return <CoupleDetail couple={selectedCouple} vendors={vendors} onBack={() => setSelectedCouple(null)} onUpdateStage={updateStage} />;
+      return <CoupleDetail couple={selectedCouple} onBack={() => setSelectedCouple(null)} onUpdateStage={updateStage} />;
     }
     switch (activeView) {
       case "dashboard": return <Dashboard couples={couples} vendors={vendors} />;
       case "couples": return <CouplesList couples={couples} setCouples={setCouples} onSelectCouple={(c) => setSelectedCouple(c)} />;
-      case "vendors": return <VendorDirectory vendors={vendors} setVendors={setVendors} />;
+      case "vendors": return <VendorDirectory vendors={vendors} />;
       case "time": return <TimeTracking couples={couples} />;
       case "portal": return <CouplePortal couples={couples} />;
       default: return null;
@@ -1351,20 +1502,33 @@ export default function App() {
   return (
     <>
       <style>{style}</style>
+      {!sessionUser ? (
+        <LoginPage
+          onLogin={({ role: loginRole, name }) => {
+            setSessionUser({ role: loginRole, name });
+            setRole(loginRole);
+            setActiveView(loginRole === "couple" ? "portal" : "dashboard");
+          }}
+        />
+      ) : (
       <div className="app">
         <aside className="sidebar">
           <div className="sidebar-brand">
-            <div className="brand-title">Bloom & Co.</div>
+            <div className="brand-row">
+              <div className="brand-title">Bloom & Co.</div>
+              <img src={brandImage} alt="Bloom & Co. mark" className="brand-logo" />
+            </div>
             <div className="brand-sub">Event Planning Studio</div>
           </div>
 
           <div className="role-switcher">
+            <button className={`role-btn ${role === "manager" ? "active" : "inactive"}`} onClick={() => { setRole("manager"); setActiveView("dashboard"); }}>Manager</button>
             <button className={`role-btn ${role === "planner" ? "active" : "inactive"}`} onClick={() => { setRole("planner"); setActiveView("dashboard"); }}>Planner</button>
             <button className={`role-btn ${role === "couple" ? "active" : "inactive"}`} onClick={() => { setRole("couple"); setActiveView("portal"); }}>Couple</button>
           </div>
 
-          <div className="sidebar-section-label">{role === "planner" ? "Operations" : "My Wedding"}</div>
-          {(role === "planner" ? plannerNav : coupleNav).map(item => (
+          <div className="sidebar-section-label">{isOperationsRole ? "Operations" : "My Wedding"}</div>
+          {(isOperationsRole ? plannerNav : coupleNav).map(item => (
             <div
               key={item.id}
               className={`nav-item ${activeView === item.id ? "active" : ""}`}
@@ -1377,6 +1541,19 @@ export default function App() {
 
           <div style={{ marginTop: "auto", padding: "20px 24px", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
             <div style={{ fontSize: 12, color: "rgba(232,239,230,0.5)", lineHeight: 1.5 }}>
+              <div style={{ marginBottom: 10, color: "rgba(232,239,230,0.85)" }}>Signed in as {sessionUser.name}</div>
+              <button
+                className="btn btn-sm btn-outline"
+                style={{ color: "#e8efe6", borderColor: "rgba(232,239,230,0.35)", marginBottom: 10 }}
+                onClick={() => {
+                  setSessionUser(null);
+                  setRole("planner");
+                  setActiveView("dashboard");
+                  setSelectedCouple(null);
+                }}
+              >
+                Log Out
+              </button>
               <div style={{ fontWeight: 600, color: "rgba(232,239,230,0.7)", marginBottom: 2 }}>API: ASP.NET Core</div>
               <div>GET /api/couples</div>
               <div>GET /api/vendors/recommend</div>
@@ -1389,6 +1566,7 @@ export default function App() {
           {renderContent()}
         </main>
       </div>
+      )}
     </>
   );
 }
