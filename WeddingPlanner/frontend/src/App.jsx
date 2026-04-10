@@ -1,12 +1,217 @@
-import { useState } from "react";
-import brandImage from "./assets/hero.png";
+import { useState, useEffect, useMemo } from "react";
+import { canViewTimeEntry } from "./domain/permissions";
+import { ROLES } from "./domain/models";
+
+const TIME_ENTRIES_STORAGE_KEY = "wedding-planner-time-entries-v2";
+const TIME_ENTRIES_LEGACY_KEY = "wedding-planner-time-entries-v1";
+const COUPLE_MESSAGES_STORAGE_KEY = "wedding-planner-couple-messages-v1";
+const VENDOR_ASSIGNMENTS_STORAGE_KEY = "wedding-planner-vendor-assignments-v2";
+const VENDOR_ASSIGNMENTS_LEGACY_KEY = "wedding-planner-vendor-assignments-v1";
+const VENDOR_DIRECTORY_STORAGE_KEY = "wedding-planner-vendor-directory-v1";
+const SESSION_STORAGE_KEY = "wedding-planner-session-v1";
+
+const PLANNER_VIEWS = new Set(["dashboard", "couples", "vendors", "time"]);
+const COUPLE_VIEWS = new Set(["portal"]);
+
+function loadStoredSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.name !== "string" || !parsed.name.trim()) return null;
+
+    const tierRaw = parsed.tier;
+    let tier;
+    if (tierRaw === "planner_only" || tierRaw === "couple_only") tier = tierRaw;
+    else if (tierRaw === "operations") tier = "operations";
+    else {
+      if (parsed.role === "manager") tier = "operations";
+      else if (parsed.role === "couple") tier = "couple_only";
+      else tier = "planner_only";
+    }
+
+    let role = parsed.role;
+    if (tier === "couple_only") role = "couple";
+    if (tier === "planner_only" && role === "manager") role = "planner";
+    if (role !== "manager" && role !== "planner" && role !== "couple") return null;
+
+    let activeView = parsed.activeView;
+    if (role === "couple") {
+      if (typeof activeView !== "string" || !COUPLE_VIEWS.has(activeView)) activeView = "portal";
+    } else {
+      if (typeof activeView !== "string" || !PLANNER_VIEWS.has(activeView)) activeView = "dashboard";
+    }
+
+    return { name: parsed.name.trim(), role, activeView, tier };
+  } catch {
+    return null;
+  }
+}
+
+function getInitialAppSessionState() {
+  const s = loadStoredSession();
+  if (!s) {
+    return { sessionUser: null, role: "planner", activeView: "dashboard", sessionTier: "operations" };
+  }
+  return {
+    sessionUser: { name: s.name, role: s.role },
+    role: s.role,
+    activeView: s.activeView,
+    sessionTier: s.tier ?? "operations",
+  };
+}
+
+const initialAppSession = getInitialAppSessionState();
+
+/** Demo: planner login maps to this staff id for time-log visibility (swap for real auth user id). */
+const DEMO_PLANNER_STAFF_USER_ID = "emp-1";
+
+function buildViewerUser(appRole) {
+  if (appRole === "manager") return { role: ROLES.MANAGER, id: "mgr-demo" };
+  if (appRole === "couple") return { role: ROLES.COUPLE, id: "couple-demo" };
+  return { role: ROLES.PLANNER, id: DEMO_PLANNER_STAFF_USER_ID };
+}
+
+function computeWorkedHours(clockInIso, clockOutIso) {
+  const diffMs = new Date(clockOutIso).getTime() - new Date(clockInIso).getTime();
+  const rawHours = diffMs / 3600000;
+  return Math.max(0, Math.round(rawHours * 10) / 10);
+}
+
+function normalizeTimeEntries(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((e) => {
+      if (!e || typeof e !== "object") return null;
+      const id = Number(e.id);
+      const employeeId = Number(e.employeeId);
+      const coupleId = Number(e.coupleId);
+      if (Number.isNaN(id) || Number.isNaN(employeeId) || Number.isNaN(coupleId)) return null;
+      const clockOut =
+        e.clockOut === undefined || e.clockOut === null || e.clockOut === ""
+          ? null
+          : String(e.clockOut);
+      let hoursWorked =
+        e.hoursWorked === undefined || e.hoursWorked === null ? null : Number(e.hoursWorked);
+      if (hoursWorked !== null && Number.isNaN(hoursWorked)) hoursWorked = null;
+      if (clockOut && hoursWorked === null && e.clockIn) {
+        hoursWorked = computeWorkedHours(e.clockIn, clockOut);
+      }
+      const employeeUserId = String(e.employeeUserId ?? `emp-${employeeId}`);
+      return {
+        ...e,
+        id,
+        employeeId,
+        employeeUserId,
+        coupleId,
+        clockOut,
+        hoursWorked: clockOut ? hoursWorked : null,
+        entryTypeLabel: e.entryTypeLabel ?? (e.entryType != null ? String(e.entryType) : ""),
+        employeeName: e.employeeName ?? "",
+        coupleName: e.coupleName ?? "",
+        description: e.description ?? "",
+        isBillable: e.isBillable !== false,
+      };
+    })
+    .filter(Boolean);
+}
+
+function loadStoredTimeEntries(fallback) {
+  try {
+    let raw = localStorage.getItem(TIME_ENTRIES_STORAGE_KEY);
+    if (!raw) raw = localStorage.getItem(TIME_ENTRIES_LEGACY_KEY);
+    if (!raw) return normalizeTimeEntries(fallback);
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return normalizeTimeEntries(fallback);
+    return normalizeTimeEntries(parsed);
+  } catch {
+    return normalizeTimeEntries(fallback);
+  }
+}
+
+function loadStoredVendorAssignments() {
+  try {
+    let raw = localStorage.getItem(VENDOR_ASSIGNMENTS_STORAGE_KEY);
+    if (!raw) raw = localStorage.getItem(VENDOR_ASSIGNMENTS_LEGACY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const vendorId = Number(item.vendorId);
+        const coupleId = Number(item.coupleId);
+        if (Number.isNaN(vendorId) || Number.isNaN(coupleId)) return null;
+        return {
+          ...item,
+          vendorId,
+          coupleId,
+        };
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function loadStoredMessages() {
+  try {
+    const raw = localStorage.getItem(COUPLE_MESSAGES_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeVendorRecord(v) {
+  if (!v || typeof v !== "object") return null;
+  const id = Number(v.id);
+  if (Number.isNaN(id)) return null;
+  const min = Math.max(0, Number(v.typicalPriceMin) || 0);
+  const max = Math.max(min, Number(v.typicalPriceMax) || min);
+  let rating = Number(v.internalRating);
+  if (Number.isNaN(rating)) rating = 4;
+  rating = Math.min(5, Math.max(0, rating));
+  return {
+    id,
+    name: String(v.name ?? "").trim() || "Unnamed vendor",
+    category: Number(v.category) || 0,
+    categoryLabel: String(v.categoryLabel ?? "Other"),
+    contactName: String(v.contactName ?? ""),
+    email: String(v.email ?? ""),
+    phone: String(v.phone ?? ""),
+    city: String(v.city ?? ""),
+    state: (String(v.state ?? "AL").slice(0, 2) || "AL").toUpperCase(),
+    typicalPriceMin: min,
+    typicalPriceMax: max,
+    timesUsed: Math.max(0, Number(v.timesUsed) || 0),
+    internalRating: rating,
+    isPreferred: Boolean(v.isPreferred),
+    notes: String(v.notes ?? ""),
+  };
+}
+
+function loadStoredVendors(fallback) {
+  try {
+    const raw = localStorage.getItem(VENDOR_DIRECTORY_STORAGE_KEY);
+    if (!raw) return fallback.map((v) => normalizeVendorRecord(v)).filter(Boolean);
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return fallback.map((v) => normalizeVendorRecord(v)).filter(Boolean);
+    const out = parsed.map(normalizeVendorRecord).filter(Boolean);
+    return out.length > 0 ? out : fallback.map((v) => normalizeVendorRecord(v)).filter(Boolean);
+  } catch {
+    return fallback.map((v) => normalizeVendorRecord(v)).filter(Boolean);
+  }
+}
 
 // ── Mock data (mirrors C# seed data) ────────────────────────────────────────
 
 const mockCouples = [
-  { id: 1, partner1Name: "Emma Thompson", partner2Name: "Liam Nguyen", email: "emma.liam@email.com", phone: "205-555-1001", weddingDate: "2025-06-14", weddingLocation: "Tuscaloosa, AL", guestCount: 150, budget: 45000, currentStage: 2, currentStageLabel: "VendorsSelected", notes: "Outdoor garden ceremony preferred. Allergic to lilies." },
-  { id: 2, partner1Name: "Sophia Martinez", partner2Name: "Alex Johnson", email: "sophia.alex@email.com", phone: "205-555-1002", weddingDate: "2025-09-20", weddingLocation: "Birmingham, AL", guestCount: 200, budget: 65000, currentStage: 0, currentStageLabel: "InitialConsultation", notes: "Luxury aesthetic. Black-tie optional." },
-  { id: 3, partner1Name: "Olivia Chen", partner2Name: "Noah Williams", email: "olivia.noah@email.com", phone: "205-555-1003", weddingDate: "2025-04-05", weddingLocation: "Tuscaloosa, AL", guestCount: 80, budget: 28000, currentStage: 5, currentStageLabel: "FinalDetails", notes: "Intimate ceremony. Bohemian style." },
+  { id: 1, partner1Name: "Emma Thompson", partner2Name: "Liam Nguyen", email: "emma.liam@email.com", phone: "205-555-1001", weddingDate: "2026-06-14", weddingLocation: "Tuscaloosa, AL", guestCount: 150, budget: 45000, currentStage: 2, currentStageLabel: "VendorsSelected", notes: "Outdoor garden ceremony preferred. Allergic to lilies." },
+  { id: 2, partner1Name: "Sophia Martinez", partner2Name: "Alex Johnson", email: "sophia.alex@email.com", phone: "205-555-1002", weddingDate: "2026-09-20", weddingLocation: "Birmingham, AL", guestCount: 200, budget: 65000, currentStage: 0, currentStageLabel: "InitialConsultation", notes: "Luxury aesthetic. Black-tie optional." },
+  { id: 3, partner1Name: "Olivia Chen", partner2Name: "Noah Williams", email: "olivia.noah@email.com", phone: "205-555-1003", weddingDate: "2027-02-14", weddingLocation: "Tuscaloosa, AL", guestCount: 80, budget: 28000, currentStage: 5, currentStageLabel: "FinalDetails", notes: "Intimate ceremony. Bohemian style." },
 ];
 
 const mockVendors = [
@@ -32,6 +237,24 @@ const mockTimeEntries = [
 
 const stages = ["Initial Consultation", "Venue Booked", "Vendors Selected", "Contracts Signed", "Planning In Progress", "Final Details", "Wedding Day", "Post Wedding", "Completed"];
 const categoryIcons = { Venue: "🏛", Catering: "🍽", Photography: "📸", Videography: "🎬", Florist: "💐", Music: "🎵", Cake: "🎂", HairAndMakeup: "💄", Officiant: "📜", Transportation: "🚗", Lighting: "💡", Decor: "✨", Invitations: "✉️", Jewelry: "💍", Other: "📦" };
+
+const VENDOR_CATEGORY_OPTIONS = [
+  { categoryLabel: "Venue", category: 0 },
+  { categoryLabel: "Catering", category: 1 },
+  { categoryLabel: "Photography", category: 2 },
+  { categoryLabel: "Videography", category: 3 },
+  { categoryLabel: "Florist", category: 4 },
+  { categoryLabel: "Music", category: 5 },
+  { categoryLabel: "Cake", category: 6 },
+  { categoryLabel: "HairAndMakeup", category: 7 },
+  { categoryLabel: "Officiant", category: 8 },
+  { categoryLabel: "Transportation", category: 9 },
+  { categoryLabel: "Lighting", category: 10 },
+  { categoryLabel: "Decor", category: 11 },
+  { categoryLabel: "Invitations", category: 12 },
+  { categoryLabel: "Jewelry", category: 13 },
+  { categoryLabel: "Other", category: 14 },
+];
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
@@ -66,17 +289,31 @@ const style = `
     min-height: 100vh;
   }
 
-  .app { display: flex; height: 100vh; overflow: hidden; }
+  .app { display: flex; height: 100vh; max-height: 100dvh; overflow: hidden; }
 
   /* Sidebar */
   .sidebar {
-    width: 240px;
-    min-width: 240px;
+    width: min(320px, 34vw);
+    min-width: 260px;
+    max-width: 360px;
     background: var(--sage-dark);
     display: flex;
     flex-direction: column;
     padding: 0;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .sidebar-nav-scroll {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  .sidebar-footer {
+    flex-shrink: 0;
+    border-top: 1px solid rgba(255,255,255,0.08);
   }
   .sidebar-brand {
     padding: 28px 24px 20px;
@@ -130,6 +367,7 @@ const style = `
     letter-spacing: 0.01em;
     transition: all 0.15s;
     border-left: 3px solid transparent;
+    white-space: nowrap;
   }
   .nav-item:hover { background: rgba(255,255,255,0.05); color: #e8efe6; }
   .nav-item.active { background: rgba(255,255,255,0.08); color: #e8efe6; border-left-color: var(--sage-light); font-weight: 500; }
@@ -646,8 +884,13 @@ function Dashboard({ couples, vendors }) {
             <div className="card-header">
               <span className="card-title">Upcoming Weddings</span>
             </div>
-            <div style={{ padding: "0 0 4px" }}>
-              {upcomingSorted.map(c => {
+            <div style={{ padding: "0 0 4px", maxHeight: "min(52vh, 420px)", overflowY: "auto" }}>
+              {upcomingSorted.length === 0 ? (
+                <div className="empty-state" style={{ padding: "28px 24px" }}>
+                  <div className="empty-text">No upcoming weddings on file. Add a client with a future wedding date.</div>
+                </div>
+              ) : (
+                upcomingSorted.map(c => {
                 const days = c.daysUntil;
                 return (
                   <div key={c.id} style={{ padding: "14px 24px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -665,7 +908,8 @@ function Dashboard({ couples, vendors }) {
                     </div>
                   </div>
                 );
-              })}
+              })
+              )}
             </div>
           </div>
 
@@ -1002,13 +1246,80 @@ function CoupleDetail({ couple, onBack, onUpdateStage }) {
 
 // ── Vendor Directory ──────────────────────────────────────────────────────────
 
-function VendorDirectory({ vendors }) {
+function VendorDirectory({ vendors, couples, assignments, onAssignVendor, onAddVendor }) {
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("All");
   const [showAI, setShowAI] = useState(false);
+  const [showAddVendor, setShowAddVendor] = useState(false);
+  const [addForm, setAddForm] = useState({
+    name: "",
+    categoryLabel: "Photography",
+    category: 2,
+    contactName: "",
+    email: "",
+    phone: "",
+    city: "",
+    state: "AL",
+    typicalPriceMin: "",
+    typicalPriceMax: "",
+    internalRating: "4.5",
+    timesUsed: "0",
+    isPreferred: false,
+    notes: "",
+  });
   const [aiResults, setAiResults] = useState([]);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiForm, setAiForm] = useState({ category: "Photography", budget: "5000", city: "Tuscaloosa" });
+  const [selectedVendor, setSelectedVendor] = useState(null);
+  const [assignClientId, setAssignClientId] = useState(String(couples?.[0]?.id ?? ""));
+  const [vendorMessage, setVendorMessage] = useState("");
+
+  const resetAddForm = () => {
+    setAddForm({
+      name: "",
+      categoryLabel: "Photography",
+      category: 2,
+      contactName: "",
+      email: "",
+      phone: "",
+      city: "",
+      state: "AL",
+      typicalPriceMin: "",
+      typicalPriceMax: "",
+      internalRating: "4.5",
+      timesUsed: "0",
+      isPreferred: false,
+      notes: "",
+    });
+  };
+
+  const submitNewVendor = () => {
+    if (!addForm.name.trim()) {
+      setVendorMessage("Please enter a vendor / business name.");
+      return;
+    }
+    const min = Math.max(0, Number(addForm.typicalPriceMin) || 0);
+    const max = Math.max(min, Number(addForm.typicalPriceMax) || min);
+    onAddVendor({
+      name: addForm.name.trim(),
+      category: addForm.category,
+      categoryLabel: addForm.categoryLabel,
+      contactName: addForm.contactName.trim(),
+      email: addForm.email.trim(),
+      phone: addForm.phone.trim(),
+      city: addForm.city.trim(),
+      state: addForm.state.trim() || "AL",
+      typicalPriceMin: min,
+      typicalPriceMax: max,
+      internalRating: Number(addForm.internalRating) || 4,
+      timesUsed: Math.max(0, Number(addForm.timesUsed) || 0),
+      isPreferred: addForm.isPreferred,
+      notes: addForm.notes.trim(),
+    });
+    setVendorMessage(`Added “${addForm.name.trim()}” to the directory.`);
+    resetAddForm();
+    setShowAddVendor(false);
+  };
 
   const cats = ["All", ...new Set(vendors.map(v => v.categoryLabel))];
   const filtered = vendors.filter(v =>
@@ -1028,6 +1339,21 @@ function VendorDirectory({ vendors }) {
     }, 1200);
   };
 
+  const getAssignedClientsForVendor = (vendorId) =>
+    assignments
+      .filter((item) => item.vendorId === vendorId)
+      .map((item) => couples.find((c) => c.id === item.coupleId))
+      .filter(Boolean);
+
+  const submitAssign = () => {
+    if (!selectedVendor || !assignClientId) return;
+    const targetClient = couples.find((c) => c.id === Number(assignClientId));
+    if (!targetClient) return;
+    onAssignVendor(selectedVendor, targetClient);
+    setVendorMessage(`Assigned ${selectedVendor.name} to ${targetClient.partner1Name} & ${targetClient.partner2Name}.`);
+    setSelectedVendor(null);
+  };
+
   return (
     <div>
       <div className="page-header">
@@ -1037,7 +1363,7 @@ function VendorDirectory({ vendors }) {
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <button className="btn btn-outline" onClick={() => setShowAI(true)}>✨ AI Recommend</button>
-          <button className="btn btn-primary">+ Add Vendor</button>
+          <button type="button" className="btn btn-primary" onClick={() => { resetAddForm(); setVendorMessage(""); setShowAddVendor(true); }}>+ Add Vendor</button>
         </div>
       </div>
       <div className="content-area">
@@ -1047,6 +1373,9 @@ function VendorDirectory({ vendors }) {
             {cats.map(c => <option key={c}>{c}</option>)}
           </select>
         </div>
+        <p style={{ fontSize: 12, color: "var(--ink-light)", margin: "0 0 16px" }}>
+          Directory and assignments save in this browser ({VENDOR_DIRECTORY_STORAGE_KEY}, {VENDOR_ASSIGNMENTS_STORAGE_KEY}).
+        </p>
 
         {aiResults.length > 0 && (
           <div style={{ background: "var(--sage-pale)", border: "1px solid var(--sage-light)", borderRadius: 4, padding: 20, marginBottom: 24 }}>
@@ -1083,14 +1412,111 @@ function VendorDirectory({ vendors }) {
               <div className="vendor-stars">{stars(v.internalRating)} <span style={{ color: "var(--ink-light)", fontSize: 11 }}>({v.timesUsed} uses)</span></div>
               <div className="vendor-price">{fmt.currency(v.typicalPriceMin)} – {fmt.currency(v.typicalPriceMax)}</div>
               {v.notes && <div style={{ fontSize: 12, color: "var(--ink-light)", marginTop: 8, lineHeight: 1.5, borderTop: "1px solid var(--border)", paddingTop: 8 }}>{v.notes}</div>}
+              <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-mid)" }}>
+                Assigned to:{" "}
+                {getAssignedClientsForVendor(v.id).length > 0
+                  ? getAssignedClientsForVendor(v.id).map((c) => `${c.partner1Name} & ${c.partner2Name}`).join(", ")
+                  : "No clients yet"}
+              </div>
               <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-                <button className="btn btn-outline btn-sm">View</button>
-                <button className="btn btn-primary btn-sm">Assign</button>
+                <button className="btn btn-outline btn-sm" onClick={() => setSelectedVendor(v)}>View</button>
+                <button className="btn btn-primary btn-sm" onClick={() => { setSelectedVendor(v); setAssignClientId(String(couples?.[0]?.id ?? "")); }}>Assign</button>
               </div>
             </div>
           ))}
         </div>
+        {vendorMessage && (
+          <div style={{ marginTop: 16, fontSize: 13, color: "var(--sage-dark)", fontWeight: 500 }}>{vendorMessage}</div>
+        )}
       </div>
+
+      {showAddVendor && (
+        <Modal
+          title="Add vendor to directory"
+          onClose={() => { setShowAddVendor(false); resetAddForm(); }}
+          footer={
+            <>
+              <button type="button" className="btn btn-outline" onClick={() => { setShowAddVendor(false); resetAddForm(); }}>Cancel</button>
+              <button type="button" className="btn btn-primary" onClick={submitNewVendor} disabled={!addForm.name.trim()}>
+                Save vendor
+              </button>
+            </>
+          }
+        >
+          <div className="grid-2">
+            <div className="form-group">
+              <label>Business name *</label>
+              <input value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} placeholder="e.g. Rosewood Events" />
+            </div>
+            <div className="form-group">
+              <label>Category</label>
+              <select
+                value={addForm.categoryLabel}
+                onChange={(e) => {
+                  const opt = VENDOR_CATEGORY_OPTIONS.find((o) => o.categoryLabel === e.target.value);
+                  if (opt) setAddForm({ ...addForm, categoryLabel: opt.categoryLabel, category: opt.category });
+                }}
+              >
+                {VENDOR_CATEGORY_OPTIONS.map((o) => (
+                  <option key={o.categoryLabel} value={o.categoryLabel}>{o.categoryLabel}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="form-group">
+            <label>Contact name</label>
+            <input value={addForm.contactName} onChange={(e) => setAddForm({ ...addForm, contactName: e.target.value })} />
+          </div>
+          <div className="grid-2">
+            <div className="form-group">
+              <label>Email</label>
+              <input type="email" value={addForm.email} onChange={(e) => setAddForm({ ...addForm, email: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label>Phone</label>
+              <input value={addForm.phone} onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })} />
+            </div>
+          </div>
+          <div className="grid-2">
+            <div className="form-group">
+              <label>City</label>
+              <input value={addForm.city} onChange={(e) => setAddForm({ ...addForm, city: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label>State</label>
+              <input value={addForm.state} onChange={(e) => setAddForm({ ...addForm, state: e.target.value })} maxLength={2} placeholder="AL" />
+            </div>
+          </div>
+          <div className="grid-2">
+            <div className="form-group">
+              <label>Typical min price ($)</label>
+              <input type="number" min={0} value={addForm.typicalPriceMin} onChange={(e) => setAddForm({ ...addForm, typicalPriceMin: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label>Typical max price ($)</label>
+              <input type="number" min={0} value={addForm.typicalPriceMax} onChange={(e) => setAddForm({ ...addForm, typicalPriceMax: e.target.value })} />
+            </div>
+          </div>
+          <div className="grid-2">
+            <div className="form-group">
+              <label>Internal rating (0–5)</label>
+              <input type="number" min={0} max={5} step={0.1} value={addForm.internalRating} onChange={(e) => setAddForm({ ...addForm, internalRating: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label>Times used (portfolio)</label>
+              <input type="number" min={0} value={addForm.timesUsed} onChange={(e) => setAddForm({ ...addForm, timesUsed: e.target.value })} />
+            </div>
+          </div>
+          <div className="form-group" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <input type="checkbox" id="add-preferred" checked={addForm.isPreferred} onChange={(e) => setAddForm({ ...addForm, isPreferred: e.target.checked })} />
+            <label htmlFor="add-preferred" style={{ margin: 0, cursor: "pointer" }}>Mark as preferred vendor</label>
+          </div>
+          <div className="form-group">
+            <label>Notes</label>
+            <textarea value={addForm.notes} onChange={(e) => setAddForm({ ...addForm, notes: e.target.value })} rows={3} placeholder="Style, lead time, deposit terms…" />
+          </div>
+        </Modal>
+      )}
 
       {showAI && (
         <Modal title="✨ AI Vendor Recommendation" onClose={() => setShowAI(false)} footer={
@@ -1122,23 +1548,69 @@ function VendorDirectory({ vendors }) {
           </div>
         </Modal>
       )}
+
+      {selectedVendor && (
+        <Modal
+          title={`Vendor Details — ${selectedVendor.name}`}
+          onClose={() => setSelectedVendor(null)}
+          footer={
+            <>
+              <button className="btn btn-outline" onClick={() => setSelectedVendor(null)}>Close</button>
+              <button className="btn btn-primary" onClick={submitAssign} disabled={!assignClientId}>
+                Assign to Client
+              </button>
+            </>
+          }
+        >
+          <div style={{ fontSize: 13.5, color: "var(--ink-mid)", lineHeight: 1.7 }}>
+            <div><strong>Category:</strong> {selectedVendor.categoryLabel}</div>
+            <div><strong>Contact:</strong> {selectedVendor.contactName}</div>
+            <div><strong>Email:</strong> {selectedVendor.email}</div>
+            <div><strong>Phone:</strong> {selectedVendor.phone}</div>
+            <div><strong>Location:</strong> {selectedVendor.city}, {selectedVendor.state}</div>
+            <div><strong>Price Range:</strong> {fmt.currency(selectedVendor.typicalPriceMin)} - {fmt.currency(selectedVendor.typicalPriceMax)}</div>
+            <div><strong>Internal Rating:</strong> {selectedVendor.internalRating} ({selectedVendor.timesUsed} uses)</div>
+            <div style={{ marginTop: 8 }}><strong>Notes:</strong> {selectedVendor.notes || "No additional notes."}</div>
+          </div>
+          <div className="form-group" style={{ marginTop: 16 }}>
+            <label>Assign to Client</label>
+            <select value={assignClientId} onChange={(e) => setAssignClientId(e.target.value)}>
+              {couples.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.partner1Name} & {c.partner2Name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
 
 // ── Time Tracking ─────────────────────────────────────────────────────────────
 
-function TimeTracking({ couples }) {
-  const [entries, setEntries] = useState(mockTimeEntries);
+function TimeTracking({ couples, entries, setEntries, viewerUser }) {
+  const isManager = viewerUser.role === ROLES.MANAGER;
+  const staffOptions = useMemo(() => {
+    if (viewerUser.role === ROLES.MANAGER) return mockEmployees;
+    return mockEmployees.filter((em) => `emp-${em.id}` === viewerUser.id);
+  }, [viewerUser]);
+
   const [showClock, setShowClock] = useState(false);
   const [form, setForm] = useState({ employeeId: "1", coupleId: "1", entryType: "Planning", description: "" });
   const [timeMessage, setTimeMessage] = useState("");
 
-  const computeWorkedHours = (clockInIso, clockOutIso) => {
-    const diffMs = new Date(clockOutIso).getTime() - new Date(clockInIso).getTime();
-    const rawHours = diffMs / 3600000;
-    return Math.max(0, Math.round(rawHours * 10) / 10);
-  };
+  useEffect(() => {
+    if (staffOptions.length >= 1) {
+      setForm((f) => ({ ...f, employeeId: String(staffOptions[0].id) }));
+    }
+  }, [staffOptions]);
+
+  const visibleEntries = useMemo(
+    () => entries.filter((e) => canViewTimeEntry(viewerUser, e)),
+    [entries, viewerUser],
+  );
 
   const handleClockIn = () => {
     const employeeId = Number(form.employeeId);
@@ -1150,9 +1622,11 @@ function TimeTracking({ couples }) {
 
     const emp = mockEmployees.find(e => e.id === Number(form.employeeId));
     const couple = couples.find(c => c.id === Number(form.coupleId));
+    const empIdNum = Number(form.employeeId);
     const newEntry = {
       id: Date.now(),
-      employeeId: Number(form.employeeId),
+      employeeId: empIdNum,
+      employeeUserId: `emp-${empIdNum}`,
       employeeName: emp?.fullName || "",
       coupleId: Number(form.coupleId),
       coupleName: `${couple?.partner1Name} & ${couple?.partner2Name}`,
@@ -1172,7 +1646,7 @@ function TimeTracking({ couples }) {
     const nowIso = new Date().toISOString();
     setEntries((prev) =>
       prev.map((entry) => {
-        if (entry.id !== entryId || entry.clockOut) {
+        if (Number(entry.id) !== Number(entryId) || entry.clockOut) {
           return entry;
         }
         return {
@@ -1185,24 +1659,31 @@ function TimeTracking({ couples }) {
     setTimeMessage("Clock out saved.");
   };
 
-  const totalHours = entries.reduce((s, e) => s + (e.hoursWorked || 0), 0);
-  const billableHours = entries.filter(e => e.isBillable).reduce((s, e) => s + (e.hoursWorked || 0), 0);
+  const totalHours = visibleEntries.reduce((s, e) => s + (e.hoursWorked || 0), 0);
+  const billableHours = visibleEntries.filter(e => e.isBillable).reduce((s, e) => s + (e.hoursWorked || 0), 0);
 
   return (
     <div>
       <div className="page-header">
         <div>
           <div className="page-title">Time Tracking</div>
-          <div className="page-subtitle">Log and allocate staff hours to client events</div>
+          <div className="page-subtitle">
+            Log and allocate staff hours to client events
+            {!isManager && (
+              <span style={{ display: "block", marginTop: 6, fontSize: 12, color: "var(--ink-light)", fontWeight: 400 }}>
+                You only see your own time entries. Managers see the full team.
+              </span>
+            )}
+          </div>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowClock(true)}>⏱ Clock In</button>
+        <button type="button" className="btn btn-primary" onClick={() => setShowClock(true)} disabled={staffOptions.length === 0}>⏱ Clock In</button>
       </div>
       <div className="content-area">
         <div className="grid-3" style={{ marginBottom: 28 }}>
           {[
-            { v: `${totalHours.toFixed(1)}h`, l: "Total Hours", n: "All entries" },
+            { v: `${totalHours.toFixed(1)}h`, l: "Total Hours", n: isManager ? "All entries" : "Your entries" },
             { v: `${billableHours.toFixed(1)}h`, l: "Billable Hours", n: "Charged to clients" },
-            { v: fmt.currency(entries.filter(e => e.isBillable).reduce((s, e) => s + (e.hoursWorked || 0) * (mockEmployees.find(em => em.id === e.employeeId)?.hourlyRate || 0), 0)), l: "Total Billing Value", n: "Based on hourly rates" },
+            { v: fmt.currency(visibleEntries.filter(e => e.isBillable).reduce((s, e) => s + (e.hoursWorked || 0) * (mockEmployees.find(em => em.id === e.employeeId)?.hourlyRate || 0), 0)), l: "Total Billing Value", n: isManager ? "All staff" : "Your entries" },
           ].map((s, i) => (
             <div className="stat-card" key={i}>
               <div className="stat-value">{s.v}</div>
@@ -1219,19 +1700,28 @@ function TimeTracking({ couples }) {
 
         <div className="card">
           <div className="card-header"><span className="card-title">Recent Entries</span></div>
+          <p style={{ fontSize: 12, color: "var(--ink-light)", padding: "0 24px 12px", margin: 0 }}>
+            Saved in this browser (localStorage key: {TIME_ENTRIES_STORAGE_KEY}). Persists after refresh.
+          </p>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr><th>Employee</th><th>Client</th><th>Type</th><th>Description</th><th>Hours</th><th>Billable</th><th>Action</th></tr>
               </thead>
               <tbody>
-                {entries.map(t => (
+                {visibleEntries.map(t => (
                   <tr key={t.id}>
                     <td style={{ fontWeight: 500 }}>{t.employeeName}</td>
                     <td style={{ fontSize: 12.5 }}>{t.coupleName}</td>
                     <td><span className="badge badge-ink">{t.entryTypeLabel}</span></td>
                     <td style={{ color: "var(--ink-mid)", maxWidth: 200 }}>{t.description}</td>
-                    <td style={{ fontWeight: 500, color: "var(--sage)" }}>{t.hoursWorked ? `${t.hoursWorked}h` : <span style={{ color: "var(--rose)" }}>Active</span>}</td>
+                    <td style={{ fontWeight: 500, color: "var(--sage)" }}>
+                      {!t.clockOut ? (
+                        <span style={{ color: "var(--rose)" }}>Active</span>
+                      ) : (
+                        `${t.hoursWorked != null ? Number(t.hoursWorked).toFixed(1) : "0.0"}h`
+                      )}
+                    </td>
                     <td>{t.isBillable ? <span style={{ color: "var(--sage)" }}>✓ Yes</span> : <span style={{ color: "var(--ink-light)" }}>No</span>}</td>
                     <td>
                       {!t.clockOut ? (
@@ -1258,8 +1748,9 @@ function TimeTracking({ couples }) {
           <div className="form-group">
             <label>Employee</label>
             <select value={form.employeeId} onChange={e => setForm({ ...form, employeeId: e.target.value })}>
-              {mockEmployees.map(em => <option key={em.id} value={em.id}>{em.fullName} ({em.role})</option>)}
+              {staffOptions.map(em => <option key={em.id} value={em.id}>{em.fullName} ({em.role})</option>)}
             </select>
+            {!isManager && <p style={{ fontSize: 12, color: "var(--ink-light)", marginTop: 8 }}>Planners can only clock in as themselves (demo: {staffOptions[0]?.fullName ?? "—"}).</p>}
           </div>
           <div className="form-group">
             <label>Client / Event</label>
@@ -1288,6 +1779,34 @@ function TimeTracking({ couples }) {
 function CouplePortal({ couples }) {
   const couple = couples[0];
   const [checks, setChecks] = useState({ venue: true, florist: true, photographer: true, caterer: false, cake: false, music: false, attire: true, invitations: false, honeymoon: false });
+  const [showMessageModal, setShowMessageModal] = useState(false);
+  const [draftMessage, setDraftMessage] = useState("");
+  const [messages, setMessages] = useState(() => loadStoredMessages());
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COUPLE_MESSAGES_STORAGE_KEY, JSON.stringify(messages));
+    } catch {
+      /* ignore */
+    }
+  }, [messages]);
+
+  const sendMessageToPlanner = () => {
+    const text = draftMessage.trim();
+    if (!text) return;
+    setMessages((prev) => [
+      {
+        id: `msg-${Date.now()}`,
+        at: new Date().toISOString(),
+        from: "couple",
+        body: text,
+        coupleId: couple.id,
+      },
+      ...prev,
+    ]);
+    setDraftMessage("");
+    setShowMessageModal(false);
+  };
 
   const toggleCheck = (k) => setChecks({ ...checks, [k]: !checks[k] });
   const checkItems = [
@@ -1313,7 +1832,7 @@ function CouplePortal({ couples }) {
         <span className="badge badge-sage" style={{ fontSize: 12, padding: "6px 14px" }}>Demo — {couple.partner1Name}'s View</span>
       </div>
       <div className="content-area">
-        <div className="portal-welcome">Hello, {couple.partner1Name} 💐</div>
+        <div className="portal-welcome">Hello, {couple.partner1Name}</div>
         <div className="portal-date">Your big day is {fmt.date(couple.weddingDate)} — {fmt.daysUntil(couple.weddingDate)} days away!</div>
 
         <div className="grid-2">
@@ -1383,16 +1902,50 @@ function CouplePortal({ couples }) {
               <div className="card-header"><span className="card-title">Your Planner</span></div>
               <div className="card-body" style={{ display: "flex", alignItems: "center", gap: 14 }}>
                 <div style={{ width: 44, height: 44, borderRadius: "50%", background: "var(--sage-pale)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>👩</div>
-                <div>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>Rachel Torres</div>
                   <div style={{ fontSize: 12.5, color: "var(--ink-light)" }}>Lead Planner · rachel@weddingco.com</div>
-                  <button className="btn btn-outline btn-sm" style={{ marginTop: 8 }}>Send Message</button>
+                  <button type="button" className="btn btn-outline btn-sm" style={{ marginTop: 8 }} onClick={() => setShowMessageModal(true)}>Send Message</button>
                 </div>
               </div>
+              {messages.filter((m) => m.coupleId === couple.id).length > 0 && (
+                <div style={{ borderTop: "1px solid var(--border)", padding: "12px 24px 20px", maxHeight: 200, overflowY: "auto" }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--ink-light)", marginBottom: 10 }}>Sent to planner</div>
+                  {messages
+                    .filter((m) => m.coupleId === couple.id)
+                    .map((m) => (
+                      <div key={m.id} style={{ fontSize: 13, color: "var(--ink-mid)", marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
+                        <div style={{ fontSize: 11, color: "var(--ink-light)" }}>{new Date(m.at).toLocaleString()}</div>
+                        <div style={{ marginTop: 4 }}>{m.body}</div>
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
       </div>
+
+      {showMessageModal && (
+        <Modal
+          title="Message your planner"
+          onClose={() => { setShowMessageModal(false); setDraftMessage(""); }}
+          footer={
+            <>
+              <button type="button" className="btn btn-outline" onClick={() => { setShowMessageModal(false); setDraftMessage(""); }}>Cancel</button>
+              <button type="button" className="btn btn-primary" onClick={sendMessageToPlanner} disabled={!draftMessage.trim()}>
+                Send
+              </button>
+            </>
+          }
+        >
+          <p style={{ fontSize: 13, color: "var(--ink-mid)", marginBottom: 12 }}>Your planner will see this in your client thread (demo: stored in this browser).</p>
+          <div className="form-group">
+            <label>Message</label>
+            <textarea value={draftMessage} onChange={(e) => setDraftMessage(e.target.value)} placeholder="Ask a question or share an update…" rows={5} style={{ width: "100%", resize: "vertical" }} />
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -1406,15 +1959,20 @@ function LoginPage({ onLogin }) {
   const submitLogin = () => {
     const loginRole = accountType === "manager" ? "manager" : userRole;
     const displayName = email.trim() || (loginRole === "couple" ? "Couple User" : "Team User");
+    const tier =
+      accountType === "manager"
+        ? "operations"
+        : userRole === "couple"
+          ? "couple_only"
+          : "planner_only";
     // TODO: Replace this mock auth with real API auth + token handling.
-    onLogin({ role: loginRole, name: displayName });
+    onLogin({ role: loginRole, name: displayName, tier });
   };
 
   return (
     <div className="login-shell">
       <div className="login-card">
         <div className="login-title">Bloom & Co. Access</div>
-        <div className="login-subtitle">Manager and user sign-in for the Wedding Planner MVP</div>
 
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           <button
@@ -1470,16 +2028,93 @@ const navItems = [
 
 export default function App() {
   const [couples, setCouples] = useState(mockCouples);
-  const [vendors] = useState(mockVendors);
-  const [activeView, setActiveView] = useState("dashboard");
+  const [vendors, setVendors] = useState(() => loadStoredVendors(mockVendors));
+  const [vendorAssignments, setVendorAssignments] = useState(loadStoredVendorAssignments);
+  const [timeEntries, setTimeEntries] = useState(() => loadStoredTimeEntries(mockTimeEntries));
+  const [activeView, setActiveView] = useState(initialAppSession.activeView);
   const [selectedCouple, setSelectedCouple] = useState(null);
-  const [role, setRole] = useState("planner");
-  const [sessionUser, setSessionUser] = useState(null);
+  const [role, setRole] = useState(initialAppSession.role);
+  const [sessionUser, setSessionUser] = useState(initialAppSession.sessionUser);
+  const [sessionTier, setSessionTier] = useState(initialAppSession.sessionTier ?? "operations");
 
   const updateStage = (id, newStage) => {
     setCouples(couples.map(c => c.id === id ? { ...c, currentStage: newStage, currentStageLabel: stages[newStage] } : c));
     if (selectedCouple?.id === id) setSelectedCouple({ ...selectedCouple, currentStage: newStage });
   };
+
+  const handleAddVendor = (draft) => {
+    setVendors((prev) => {
+      const nextId = prev.reduce((m, v) => Math.max(m, Number(v.id) || 0), 0) + 1;
+      const row = normalizeVendorRecord({ ...draft, id: nextId });
+      return row ? [...prev, row] : prev;
+    });
+  };
+
+  const assignVendorToClient = (vendor, client) => {
+    setVendorAssignments((prev) => {
+      const alreadyAssigned = prev.some(
+        (item) => item.vendorId === vendor.id && item.coupleId === client.id,
+      );
+      if (alreadyAssigned) return prev;
+      return [
+        ...prev,
+        {
+          id: `assign-${Date.now()}-${vendor.id}-${client.id}`,
+          vendorId: vendor.id,
+          coupleId: client.id,
+          assignedAt: new Date().toISOString(),
+        },
+      ];
+    });
+  };
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VENDOR_DIRECTORY_STORAGE_KEY, JSON.stringify(vendors));
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [vendors]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VENDOR_ASSIGNMENTS_STORAGE_KEY, JSON.stringify(vendorAssignments));
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [vendorAssignments]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TIME_ENTRIES_STORAGE_KEY, JSON.stringify(timeEntries));
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [timeEntries]);
+
+  useEffect(() => {
+    if (!sessionUser) {
+      try {
+        localStorage.removeItem(SESSION_STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    try {
+      localStorage.setItem(
+        SESSION_STORAGE_KEY,
+        JSON.stringify({
+          name: sessionUser.name,
+          role,
+          activeView,
+          tier: sessionTier,
+        }),
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [sessionUser, role, activeView, sessionTier]);
 
   const plannerNav = navItems.filter(n => n.role === "planner");
   const coupleNav = navItems.filter(n => n.role === "couple");
@@ -1492,8 +2127,8 @@ export default function App() {
     switch (activeView) {
       case "dashboard": return <Dashboard couples={couples} vendors={vendors} />;
       case "couples": return <CouplesList couples={couples} setCouples={setCouples} onSelectCouple={(c) => setSelectedCouple(c)} />;
-      case "vendors": return <VendorDirectory vendors={vendors} />;
-      case "time": return <TimeTracking couples={couples} />;
+      case "vendors": return <VendorDirectory vendors={vendors} couples={couples} assignments={vendorAssignments} onAssignVendor={assignVendorToClient} onAddVendor={handleAddVendor} />;
+      case "time": return <TimeTracking couples={couples} entries={timeEntries} setEntries={setTimeEntries} viewerUser={buildViewerUser(role)} />;
       case "portal": return <CouplePortal couples={couples} />;
       default: return null;
     }
@@ -1504,9 +2139,10 @@ export default function App() {
       <style>{style}</style>
       {!sessionUser ? (
         <LoginPage
-          onLogin={({ role: loginRole, name }) => {
+          onLogin={({ role: loginRole, name, tier }) => {
             setSessionUser({ role: loginRole, name });
             setRole(loginRole);
+            setSessionTier(tier ?? "operations");
             setActiveView(loginRole === "couple" ? "portal" : "dashboard");
           }}
         />
@@ -1516,38 +2152,51 @@ export default function App() {
           <div className="sidebar-brand">
             <div className="brand-row">
               <div className="brand-title">Bloom & Co.</div>
-              <img src={brandImage} alt="Bloom & Co. mark" className="brand-logo" />
             </div>
             <div className="brand-sub">Event Planning Studio</div>
           </div>
 
+          {sessionTier === "couple_only" ? (
+            <div style={{ padding: "12px 24px", fontSize: 12, color: "rgba(232,239,230,0.75)" }}>Signed in as couple (limited access)</div>
+          ) : (
           <div className="role-switcher">
-            <button className={`role-btn ${role === "manager" ? "active" : "inactive"}`} onClick={() => { setRole("manager"); setActiveView("dashboard"); }}>Manager</button>
-            <button className={`role-btn ${role === "planner" ? "active" : "inactive"}`} onClick={() => { setRole("planner"); setActiveView("dashboard"); }}>Planner</button>
-            <button className={`role-btn ${role === "couple" ? "active" : "inactive"}`} onClick={() => { setRole("couple"); setActiveView("portal"); }}>Couple</button>
+            {sessionTier === "operations" && (
+              <button type="button" className={`role-btn ${role === "manager" ? "active" : "inactive"}`} onClick={() => { setRole("manager"); setActiveView("dashboard"); setSessionUser((u) => (u ? { ...u, role: "manager" } : null)); }}>Manager</button>
+            )}
+            <button type="button" className={`role-btn ${role === "planner" ? "active" : "inactive"}`} onClick={() => { setRole("planner"); setActiveView("dashboard"); setSessionUser((u) => (u ? { ...u, role: "planner" } : null)); }}>Planner</button>
+            <button type="button" className={`role-btn ${role === "couple" ? "active" : "inactive"}`} onClick={() => { setRole("couple"); setActiveView("portal"); setSessionUser((u) => (u ? { ...u, role: "couple" } : null)); }}>Couple</button>
+          </div>
+          )}
+
+          <div className="sidebar-nav-scroll">
+            <div className="sidebar-section-label">{isOperationsRole ? "Operations" : "My Wedding"}</div>
+            {(isOperationsRole ? plannerNav : coupleNav).map(item => (
+              <div
+                key={item.id}
+                className={`nav-item ${activeView === item.id ? "active" : ""}`}
+                onClick={() => { setActiveView(item.id); setSelectedCouple(null); }}
+              >
+                <span className="nav-icon">{item.icon}</span>
+                {item.label}
+              </div>
+            ))}
           </div>
 
-          <div className="sidebar-section-label">{isOperationsRole ? "Operations" : "My Wedding"}</div>
-          {(isOperationsRole ? plannerNav : coupleNav).map(item => (
-            <div
-              key={item.id}
-              className={`nav-item ${activeView === item.id ? "active" : ""}`}
-              onClick={() => { setActiveView(item.id); setSelectedCouple(null); }}
-            >
-              <span className="nav-icon">{item.icon}</span>
-              {item.label}
-            </div>
-          ))}
-
-          <div style={{ marginTop: "auto", padding: "20px 24px", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+          <div className="sidebar-footer" style={{ padding: "20px 24px" }}>
             <div style={{ fontSize: 12, color: "rgba(232,239,230,0.5)", lineHeight: 1.5 }}>
               <div style={{ marginBottom: 10, color: "rgba(232,239,230,0.85)" }}>Signed in as {sessionUser.name}</div>
               <button
                 className="btn btn-sm btn-outline"
                 style={{ color: "#e8efe6", borderColor: "rgba(232,239,230,0.35)", marginBottom: 10 }}
                 onClick={() => {
+                  try {
+                    localStorage.removeItem(SESSION_STORAGE_KEY);
+                  } catch {
+                    /* ignore */
+                  }
                   setSessionUser(null);
                   setRole("planner");
+                  setSessionTier("operations");
                   setActiveView("dashboard");
                   setSelectedCouple(null);
                 }}

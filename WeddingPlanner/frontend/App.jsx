@@ -1,5 +1,4 @@
 import { useState } from "react";
-import brandImage from "./assets/hero.png";
 
 // ── Mock data (mirrors C# seed data) ────────────────────────────────────────
 
@@ -1516,7 +1515,6 @@ export default function App() {
           <div className="sidebar-brand">
             <div className="brand-row">
               <div className="brand-title">Bloom & Co.</div>
-              <img src={brandImage} alt="Bloom & Co. mark" className="brand-logo" />
             </div>
             <div className="brand-sub">Event Planning Studio</div>
           </div>
