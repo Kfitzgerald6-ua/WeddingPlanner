@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using WeddingPlannerApi.Data;
@@ -8,6 +9,7 @@ namespace WeddingPlannerApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Roles = "Manager,Planner")]
 public class VendorsController : ControllerBase
 {
     private readonly AppDbContext _db;

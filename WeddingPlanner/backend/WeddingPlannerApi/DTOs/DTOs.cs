@@ -34,6 +34,27 @@ public record CreateCoupleRequest(
 
 public record UpdateStageRequest(WorkflowStage NewStage);
 
+// ── Auth DTOs ─────────────────────────────────────────────────────────────────
+
+public record LoginRequest(
+    string Email,
+    string Password
+);
+
+public record AuthenticatedUserDto(
+    int Id,
+    string Email,
+    string DisplayName,
+    string Role,
+    int? EmployeeId,
+    int? CoupleId
+);
+
+public record LoginResponse(
+    string Token,
+    AuthenticatedUserDto User
+);
+
 // ── Vendor DTOs ───────────────────────────────────────────────────────────────
 
 public record VendorDto(
@@ -164,6 +185,11 @@ public record TimeEntrySummaryDto(
     double BillableHours,
     decimal TotalCost,
     List<TimeEntryDto> Entries
+);
+
+public record CouplePortalOverviewDto(
+    CoupleDto Couple,
+    List<EventVendorDto> Vendors
 );
 
 // ── Dashboard DTOs ────────────────────────────────────────────────────────────

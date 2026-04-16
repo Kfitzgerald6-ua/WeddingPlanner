@@ -1,5 +1,9 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using WeddingPlannerApi.Data;
+using WeddingPlannerApi.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -7,6 +11,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new()
@@ -24,10 +29,34 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.AddDbContext<AppDbContext>(opts =>
     opts.UseInMemoryDatabase("WeddingPlannerDb"));
 
+var jwtService = new JwtTokenService(builder.Configuration);
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateIssuerSigningKey = true,
+            ValidateLifetime = true,
+            ValidIssuer = jwtService.Issuer,
+            ValidAudience = jwtService.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtService.SigningKey)),
+            ClockSkew = TimeSpan.Zero,
+            RoleClaimType = "http://schemas.microsoft.com/ws/2008/06/identity/claims/role",
+            NameClaimType = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
+        };
+    });
+
+builder.Services.AddAuthorization();
+
 builder.Services.AddCors(opts =>
 {
     opts.AddDefaultPolicy(policy =>
-        policy.AllowAnyOrigin()
+        policy.WithOrigins(
+                  "http://localhost:5173",
+                  "http://127.0.0.1:5173")
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
@@ -54,6 +83,10 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+public partial class Program;

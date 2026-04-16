@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<Employee> Employees => Set<Employee>();
     public DbSet<TimeEntry> TimeEntries => Set<TimeEntry>();
     public DbSet<Document> Documents => Set<Document>();
+    public DbSet<AppUser> Users => Set<AppUser>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -69,6 +70,22 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<AppUser>(e =>
+        {
+            e.HasKey(u => u.Id);
+            e.HasIndex(u => u.Email).IsUnique();
+            e.Property(u => u.Email).HasMaxLength(256);
+            e.Property(u => u.DisplayName).HasMaxLength(256);
+            e.HasOne(u => u.Employee)
+                .WithMany(em => em.Users)
+                .HasForeignKey(u => u.EmployeeId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(u => u.Couple)
+                .WithMany(c => c.PortalUsers)
+                .HasForeignKey(u => u.CoupleId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
         // Document
         modelBuilder.Entity<Document>(e =>
         {
@@ -122,6 +139,14 @@ public class AppDbContext : DbContext
             new TimeEntry { Id = 1, EmployeeId = 1, CoupleId = 1, ClockIn = new DateTime(2025, 1, 10, 9, 0, 0), ClockOut = new DateTime(2025, 1, 10, 12, 30, 0), Description = "Vendor meeting with florist", EntryType = TimeEntryType.VendorMeeting, IsBillable = true },
             new TimeEntry { Id = 2, EmployeeId = 2, CoupleId = 1, ClockIn = new DateTime(2025, 1, 12, 10, 0, 0), ClockOut = new DateTime(2025, 1, 12, 14, 0, 0), Description = "Timeline planning session", EntryType = TimeEntryType.Planning, IsBillable = true },
             new TimeEntry { Id = 3, EmployeeId = 1, CoupleId = 3, ClockIn = new DateTime(2025, 1, 8, 13, 0, 0), ClockOut = new DateTime(2025, 1, 8, 17, 0, 0), Description = "Final details walkthrough at venue", EntryType = TimeEntryType.ClientMeeting, IsBillable = true }
+        );
+
+        modelBuilder.Entity<AppUser>().HasData(
+            new AppUser { Id = 1, Email = "manager@bloomco.com", DisplayName = "Morgan Reed", PasswordHash = PasswordHasher.Hash("Password123!"), Role = AppRole.Manager, EmployeeId = 1 },
+            new AppUser { Id = 2, Email = "planner@bloomco.com", DisplayName = "Rachel Torres", PasswordHash = PasswordHasher.Hash("Password123!"), Role = AppRole.Planner, EmployeeId = 1 },
+            new AppUser { Id = 3, Email = "emma.liam@email.com", DisplayName = "Emma Thompson", PasswordHash = PasswordHasher.Hash("Password123!"), Role = AppRole.Couple, CoupleId = 1 },
+            new AppUser { Id = 4, Email = "sophia.alex@email.com", DisplayName = "Sophia Martinez", PasswordHash = PasswordHasher.Hash("Password123!"), Role = AppRole.Couple, CoupleId = 2 },
+            new AppUser { Id = 5, Email = "olivia.noah@email.com", DisplayName = "Olivia Chen", PasswordHash = PasswordHasher.Hash("Password123!"), Role = AppRole.Couple, CoupleId = 3 }
         );
     }
 }

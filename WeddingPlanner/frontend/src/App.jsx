@@ -1596,16 +1596,11 @@ function TimeTracking({ couples, entries, setEntries, viewerUser }) {
     if (viewerUser.role === ROLES.MANAGER) return mockEmployees;
     return mockEmployees.filter((em) => `emp-${em.id}` === viewerUser.id);
   }, [viewerUser]);
+  const defaultEmployeeId = String(staffOptions[0]?.id ?? 1);
 
   const [showClock, setShowClock] = useState(false);
-  const [form, setForm] = useState({ employeeId: "1", coupleId: "1", entryType: "Planning", description: "" });
+  const [form, setForm] = useState({ employeeId: defaultEmployeeId, coupleId: "1", entryType: "Planning", description: "" });
   const [timeMessage, setTimeMessage] = useState("");
-
-  useEffect(() => {
-    if (staffOptions.length >= 1) {
-      setForm((f) => ({ ...f, employeeId: String(staffOptions[0].id) }));
-    }
-  }, [staffOptions]);
 
   const visibleEntries = useMemo(
     () => entries.filter((e) => canViewTimeEntry(viewerUser, e)),
@@ -1747,7 +1742,7 @@ function TimeTracking({ couples, entries, setEntries, viewerUser }) {
         }>
           <div className="form-group">
             <label>Employee</label>
-            <select value={form.employeeId} onChange={e => setForm({ ...form, employeeId: e.target.value })}>
+            <select value={form.employeeId || defaultEmployeeId} onChange={e => setForm({ ...form, employeeId: e.target.value })}>
               {staffOptions.map(em => <option key={em.id} value={em.id}>{em.fullName} ({em.role})</option>)}
             </select>
             {!isManager && <p style={{ fontSize: 12, color: "var(--ink-light)", marginTop: 8 }}>Planners can only clock in as themselves (demo: {staffOptions[0]?.fullName ?? "—"}).</p>}

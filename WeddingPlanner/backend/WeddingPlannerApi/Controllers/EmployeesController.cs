@@ -1,13 +1,16 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using WeddingPlannerApi.Data;
 using WeddingPlannerApi.DTOs;
 using WeddingPlannerApi.Models;
+using WeddingPlannerApi.Security;
 
 namespace WeddingPlannerApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Roles = "Manager,Planner")]
 public class EmployeesController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -64,6 +67,7 @@ public class EmployeesController : ControllerBase
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Roles = "Manager,Planner")]
 public class TimeEntriesController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -74,12 +78,26 @@ public class TimeEntriesController : ControllerBase
         [FromQuery] int? employeeId,
         [FromQuery] int? coupleId)
     {
+        var currentEmployeeId = User.GetEmployeeId();
         var query = _db.TimeEntries
             .Include(t => t.Employee)
             .Include(t => t.Couple)
             .AsQueryable();
 
-        if (employeeId.HasValue) query = query.Where(t => t.EmployeeId == employeeId);
+        if (User.IsInRole(nameof(AppRole.Planner)))
+        {
+            if (!currentEmployeeId.HasValue)
+            {
+                return Forbid();
+            }
+
+            query = query.Where(t => t.EmployeeId == currentEmployeeId.Value);
+        }
+        else if (employeeId.HasValue)
+        {
+            query = query.Where(t => t.EmployeeId == employeeId);
+        }
+
         if (coupleId.HasValue) query = query.Where(t => t.CoupleId == coupleId);
 
         var entries = await query.OrderByDescending(t => t.ClockIn).ToListAsync();
@@ -89,6 +107,12 @@ public class TimeEntriesController : ControllerBase
     [HttpPost("clock-in")]
     public async Task<ActionResult<TimeEntryDto>> ClockIn(ClockInRequest req)
     {
+        var currentEmployeeId = User.GetEmployeeId();
+        if (User.IsInRole(nameof(AppRole.Planner)) && currentEmployeeId != req.EmployeeId)
+        {
+            return Forbid();
+        }
+
         var employee = await _db.Employees.FindAsync(req.EmployeeId);
         if (employee is null) return BadRequest("Employee not found.");
 
@@ -121,12 +145,18 @@ public class TimeEntriesController : ControllerBase
     [HttpPatch("clock-out")]
     public async Task<ActionResult<TimeEntryDto>> ClockOut(ClockOutRequest req)
     {
+        var currentEmployeeId = User.GetEmployeeId();
         var entry = await _db.TimeEntries
             .Include(t => t.Employee)
             .Include(t => t.Couple)
             .FirstOrDefaultAsync(t => t.Id == req.TimeEntryId);
 
         if (entry is null) return NotFound();
+        if (User.IsInRole(nameof(AppRole.Planner)) && currentEmployeeId != entry.EmployeeId)
+        {
+            return Forbid();
+        }
+
         if (entry.ClockOut.HasValue) return Conflict("Entry is already clocked out.");
 
         entry.ClockOut = DateTime.UtcNow;

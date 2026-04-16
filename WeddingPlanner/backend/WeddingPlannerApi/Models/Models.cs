@@ -1,5 +1,26 @@
 namespace WeddingPlannerApi.Models;
 
+public class AppUser
+{
+    public int Id { get; set; }
+    public string Email { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string PasswordHash { get; set; } = string.Empty;
+    public AppRole Role { get; set; }
+    public int? EmployeeId { get; set; }
+    public int? CoupleId { get; set; }
+
+    public Employee? Employee { get; set; }
+    public Couple? Couple { get; set; }
+}
+
+public enum AppRole
+{
+    Manager,
+    Planner,
+    Couple
+}
+
 public class Couple
 {
     public int Id { get; set; }
@@ -19,6 +40,7 @@ public class Couple
     public ICollection<EventVendor> EventVendors { get; set; } = new List<EventVendor>();
     public ICollection<TimeEntry> TimeEntries { get; set; } = new List<TimeEntry>();
     public ICollection<Document> Documents { get; set; } = new List<Document>();
+    public ICollection<AppUser> PortalUsers { get; set; } = new List<AppUser>();
 }
 
 public enum WorkflowStage
@@ -118,6 +140,7 @@ public class Employee
 
     // Navigation
     public ICollection<TimeEntry> TimeEntries { get; set; } = new List<TimeEntry>();
+    public ICollection<AppUser> Users { get; set; } = new List<AppUser>();
 }
 
 public class TimeEntry
