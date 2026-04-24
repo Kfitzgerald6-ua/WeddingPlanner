@@ -114,9 +114,9 @@ public class AppDbContext : DbContext
 
         // Couples
         modelBuilder.Entity<Couple>().HasData(
-            new Couple { Id = 1, Partner1Name = "Emma Thompson", Partner2Name = "Liam Nguyen", Email = "emma.liam@email.com", Phone = "205-555-1001", WeddingDate = new DateTime(2025, 6, 14), WeddingLocation = "Tuscaloosa, AL", GuestCount = 150, Budget = 45000, CurrentStage = WorkflowStage.VendorsSelected, Notes = "Outdoor garden ceremony preferred. Allergic to lilies." },
-            new Couple { Id = 2, Partner1Name = "Sophia Martinez", Partner2Name = "Alex Johnson", Email = "sophia.alex@email.com", Phone = "205-555-1002", WeddingDate = new DateTime(2025, 9, 20), WeddingLocation = "Birmingham, AL", GuestCount = 200, Budget = 65000, CurrentStage = WorkflowStage.InitialConsultation, Notes = "Luxury aesthetic. Black-tie optional." },
-            new Couple { Id = 3, Partner1Name = "Olivia Chen", Partner2Name = "Noah Williams", Email = "olivia.noah@email.com", Phone = "205-555-1003", WeddingDate = new DateTime(2025, 4, 5), WeddingLocation = "Tuscaloosa, AL", GuestCount = 80, Budget = 28000, CurrentStage = WorkflowStage.FinalDetails, Notes = "Intimate ceremony. Bohemian style." }
+            new Couple { Id = 1, Partner1Name = "Emma Thompson", Partner2Name = "Liam Nguyen", Email = "emma.liam@email.com", Phone = "205-555-1001", WeddingDate = new DateTime(2026, 6, 14), WeddingLocation = "Tuscaloosa, AL", GuestCount = 150, Budget = 45000, CurrentStage = WorkflowStage.VendorsSelected, Notes = "Outdoor garden ceremony preferred. Allergic to lilies." },
+            new Couple { Id = 2, Partner1Name = "Sophia Martinez", Partner2Name = "Alex Johnson", Email = "sophia.alex@email.com", Phone = "205-555-1002", WeddingDate = new DateTime(2026, 9, 20), WeddingLocation = "Birmingham, AL", GuestCount = 200, Budget = 65000, CurrentStage = WorkflowStage.InitialConsultation, Notes = "Luxury aesthetic. Black-tie optional." },
+            new Couple { Id = 3, Partner1Name = "Olivia Chen", Partner2Name = "Noah Williams", Email = "olivia.noah@email.com", Phone = "205-555-1003", WeddingDate = new DateTime(2027, 4, 5), WeddingLocation = "Tuscaloosa, AL", GuestCount = 80, Budget = 28000, CurrentStage = WorkflowStage.FinalDetails, Notes = "Intimate ceremony. Bohemian style." }
         );
 
         // Employees
@@ -136,9 +136,9 @@ public class AppDbContext : DbContext
 
         // TimeEntries
         modelBuilder.Entity<TimeEntry>().HasData(
-            new TimeEntry { Id = 1, EmployeeId = 1, CoupleId = 1, ClockIn = new DateTime(2025, 1, 10, 9, 0, 0), ClockOut = new DateTime(2025, 1, 10, 12, 30, 0), Description = "Vendor meeting with florist", EntryType = TimeEntryType.VendorMeeting, IsBillable = true },
-            new TimeEntry { Id = 2, EmployeeId = 2, CoupleId = 1, ClockIn = new DateTime(2025, 1, 12, 10, 0, 0), ClockOut = new DateTime(2025, 1, 12, 14, 0, 0), Description = "Timeline planning session", EntryType = TimeEntryType.Planning, IsBillable = true },
-            new TimeEntry { Id = 3, EmployeeId = 1, CoupleId = 3, ClockIn = new DateTime(2025, 1, 8, 13, 0, 0), ClockOut = new DateTime(2025, 1, 8, 17, 0, 0), Description = "Final details walkthrough at venue", EntryType = TimeEntryType.ClientMeeting, IsBillable = true }
+            new TimeEntry { Id = 1, EmployeeId = 1, CoupleId = 1, ClockIn = new DateTime(2026, 1, 10, 9, 0, 0), ClockOut = new DateTime(2026, 1, 10, 12, 30, 0), Description = "Vendor meeting with florist", EntryType = TimeEntryType.VendorMeeting, IsBillable = true },
+            new TimeEntry { Id = 2, EmployeeId = 2, CoupleId = 1, ClockIn = new DateTime(2026, 1, 12, 10, 0, 0), ClockOut = new DateTime(2026, 1, 12, 14, 0, 0), Description = "Timeline planning session", EntryType = TimeEntryType.Planning, IsBillable = true },
+            new TimeEntry { Id = 3, EmployeeId = 1, CoupleId = 3, ClockIn = new DateTime(2026, 1, 8, 13, 0, 0), ClockOut = new DateTime(2026, 1, 8, 17, 0, 0), Description = "Final details walkthrough at venue", EntryType = TimeEntryType.ClientMeeting, IsBillable = true }
         );
 
         modelBuilder.Entity<AppUser>().HasData(

@@ -196,7 +196,8 @@ const style = `
   .btn {
     border: 0;
     border-radius: 999px;
-    padding: 10px 16px;
+    padding: 8px 13px;
+    font-size: 13px;
     cursor: pointer;
   }
   .btn.primary { background: var(--sage); color: white; }
@@ -678,6 +679,25 @@ function LoginView({ onSubmit, loading, error }) {
 }
 
 function DashboardView({ couples, vendors, employees, loading }) {
+  const now = new Date();
+  const upcoming = couples
+    .map((couple) => {
+      const weddingDate = new Date(couple.weddingDate);
+      const daysUntil = Math.ceil((weddingDate - now) / 86400000);
+      return { ...couple, daysUntil };
+    })
+    .filter((couple) => couple.daysUntil >= 0)
+    .sort((a, b) => a.daysUntil - b.daysUntil);
+  const preferredVendors = vendors.filter((vendor) => vendor.isPreferred).length;
+  const avgBudget = couples.length
+    ? Math.round(couples.reduce((sum, couple) => sum + (couple.budget || 0), 0) / couples.length)
+    : 0;
+  const stageCounts = stages.map((stage, idx) => ({
+    stage,
+    count: couples.filter((couple) => couple.currentStage === idx).length,
+  }));
+  const maxStageCount = Math.max(1, ...stageCounts.map((item) => item.count));
+
   return (
     <>
       <Header title="Dashboard" subtitle="Connected overview of current clients, vendors, and staff activity." />
@@ -685,6 +705,62 @@ function DashboardView({ couples, vendors, employees, loading }) {
         <Stat label="Active Clients" value={loading ? "..." : couples.length} />
         <Stat label="Vendor Directory" value={loading ? "..." : vendors.length} />
         <Stat label="Team Members" value={loading ? "..." : employees.length} />
+      </div>
+      <div className="grid cols-3" style={{ marginTop: 18 }}>
+        <Stat label="Preferred Vendors" value={loading ? "..." : preferredVendors} />
+        <Stat label="Avg Client Budget" value={loading ? "..." : fmt.currency(avgBudget)} />
+        <Stat label="Upcoming Weddings" value={loading ? "..." : upcoming.length} />
+      </div>
+      <div className="grid cols-2" style={{ marginTop: 18 }}>
+        <div className="panel pad">
+          <div className="title" style={{ fontSize: 28 }}>Upcoming Timeline</div>
+          <div className="subtitle">Nearest weddings by countdown and stage.</div>
+          <div className="list" style={{ marginTop: 14 }}>
+            {upcoming.slice(0, 5).map((couple) => (
+              <div key={couple.id} className="card-row">
+                <div className="split">
+                  <strong>{couple.partner1Name} & {couple.partner2Name}</strong>
+                  <span className="pill">{couple.daysUntil} days</span>
+                </div>
+                <div className="muted">{fmt.date(couple.weddingDate)} · {couple.weddingLocation}</div>
+                <div className="muted">Stage: {couple.currentStageLabel}</div>
+              </div>
+            ))}
+            {upcoming.length === 0 && <div className="empty">No future weddings yet.</div>}
+          </div>
+        </div>
+        <div className="panel pad">
+          <div className="title" style={{ fontSize: 28 }}>Workflow Visibility</div>
+          <div className="subtitle">Current client distribution across planning stages.</div>
+          <div className="list" style={{ marginTop: 14 }}>
+            {stageCounts.filter((item) => item.count > 0).map((item) => (
+              <div key={item.stage}>
+                <div className="split">
+                  <span>{item.stage}</span>
+                  <span className="pill">{item.count}</span>
+                </div>
+                <div
+                  style={{
+                    marginTop: 8,
+                    height: 8,
+                    borderRadius: 999,
+                    background: "rgba(72,98,67,0.14)",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${(item.count / maxStageCount) * 100}%`,
+                      height: "100%",
+                      background: "var(--sage)",
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+            {stageCounts.every((item) => item.count === 0) && <div className="empty">No client stage data available.</div>}
+          </div>
+        </div>
       </div>
     </>
   );
